@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Advisor Transition Check</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;700&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f2f4f3;--panel:#fff;--ink:#16212b;--mut:#5b6872;--line:#d6dcdf;--ci:#6b7680;--pi:#0f766e;--cost:#b45309;--good:#0f766e;--bad:#b42318;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10171c;--panel:#18222a;--ink:#e6edf1;--mut:#97a5ae;--line:#2c3a44;--ci:#9aa7b0;--pi:#3dbfb3;--cost:#e0a04a;--good:#3dbfb3;--bad:#f0877c}}
+:root[data-theme="dark"]{--bg:#10171c;--panel:#18222a;--ink:#e6edf1;--mut:#97a5ae;--line:#2c3a44;--ci:#9aa7b0;--pi:#3dbfb3;--cost:#e0a04a;--good:#3dbfb3;--bad:#f0877c}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Source Sans 3",system-ui,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:24px 16px 48px}
+h1,h2{font-family:"Source Serif 4",Georgia,serif;margin:0}
+h1{font-size:1.9rem;line-height:1.2}h2{font-size:1.15rem;margin-bottom:10px}
+.sub{color:var(--mut);max-width:62ch;margin:6px 0 20px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+label{display:flex;flex-direction:column;font-size:.82rem;color:var(--mut);gap:3px}
+input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:6px 8px;width:100%}
+input:focus-visible,select:focus-visible{outline:2px solid var(--pi);outline-offset:1px}
+.verdict{border-left:5px solid var(--pi);padding:14px 16px}
+.verdict b{font-family:"Source Serif 4",Georgia,serif;font-size:1.35rem;display:block;margin-bottom:4px}
+.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:480px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:7px 8px;border-bottom:1px solid var(--line);font-size:.92rem}th:first-child,td:first-child{text-align:left}
+th{color:var(--mut);font-weight:600}.pos{color:var(--good)}.neg{color:var(--bad)}
+.legend{display:flex;gap:16px;font-size:.85rem;color:var(--mut);margin-top:6px}.legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:6px}
+svg{width:100%;height:auto;display:block}.note{color:var(--mut);font-size:.82rem}
+</style>
+</head>
+<body>
+<main>
+<h1>Advisor transition check</h1>
+<p class="sub">Compares a client’s Current Investment (CI) with a Proposed Investment (PI) after taxes, exit charges, fees and costs, from now through age 90. Change any assumption and the verdict updates.</p>
+
+<section class="panel"><h2>Client persona</h2>
+<label style="max-width:320px;margin-bottom:12px">Preset<select id="preset"></select></label>
+<div class="grid" id="inputs"></div></section>
+
+<section class="panel verdict" id="verdict"></section>
+
+<section class="panel"><h2>Portfolio value by age (base case)</h2>
+<div id="chart"></div>
+<div class="legend"><span><i style="background:var(--ci)"></i>Stay in CI</span><span><i style="background:var(--pi)"></i>Best-fit transition</span></div></section>
+
+<section class="panel"><h2>Outcome at each retirement age (base case)</h2><div class="scroll" id="ages"></div></section>
+<section class="panel"><h2>Market scenarios: value at age 90</h2><div class="scroll" id="scen"></div>
+<p class="note" id="costline"></p></section>
+
+<p class="note">Nominal dollars, annual compounding, withdrawals taken at the start of each year and taxed at a flat effective rate. Illustrative model for decision support, not a guarantee of future performance or tax advice. Transition share is chosen from 0%, 25%, 50%, 75% and 100% by average value at age 90 across the three scenarios, with unfunded retirement years counted as a loss.</p>
+</main>
+<script>
+const F=[["age","Current age",1],["ret","Retirement age",1],["bal","Portfolio ($)",1000],["contrib","Annual savings ($)",500],["need","Income need, after tax ($/yr, today’s $)",1000],["infl","Inflation %",0.1],["tax","Effective tax on withdrawals %",0.5],["cir","CI gross return %",0.1],["cif","CI annual fees %",0.1],["pir","PI gross return %",0.1],["pif","PI annual fees %",0.1],["cgt","Capital gains tax on moved assets %",0.1],["sur","Surrender / exit charge %",0.1],["tx","Transaction costs %",0.1],["adv","Upfront advisory fee %",0.1]];
+const P={"Reference: $700K, age 52":{age:52,ret:60,bal:700000,contrib:10000,need:60000,infl:2.5,tax:18,cir:6,cif:1.3,pir:7.2,pif:1,cgt:3.6,sur:2.1,tx:.7,adv:1.4},
+"Near retirement: $1.2M, age 58":{age:58,ret:60,bal:1200000,contrib:0,need:80000,infl:2.5,tax:22,cir:5,cif:.8,pir:6.5,pif:1.2,cgt:5,sur:3,tx:.8,adv:1.5},
+"Early saver: $350K, age 40":{age:40,ret:60,bal:350000,contrib:15000,need:70000,infl:2.5,tax:20,cir:5.5,cif:1.2,pir:7,pif:.9,cgt:1.5,sur:0,tx:.5,adv:1}};
+const $=id=>document.getElementById(id),v={};
+const fmt=n=>(n<0?"-":"")+"$"+Math.abs(Math.round(n)).toLocaleString("en-US");
+const SC=[["Bear (−2 pts)",-2],["Base",0],["Bull (+1 pt)",1]],SH=[0,.25,.5,.75,1];
+function sim(p,share,shift){
+ const moved=p.bal*share,cost=moved*(p.cgt+p.sur+p.tx+p.adv)/100;
+ let k=p.bal-moved,m=moved-cost,short=0,dep=null,out={};
+ const rc=(p.cir+shift-p.cif)/100,rp=(p.pir+shift-p.pif)/100;
+ for(let a=p.age;a<=90;a++){
+  if(a in {60:1,70:1,80:1,90:1}||a===p.ret)out[a]=k+m-short;
+  if(a===90)break;
+  if(a<p.ret){k=k*(1+rc)+p.contrib*(1-share);m=m*(1+rp)+p.contrib*share}
+  else{const w=p.need*Math.pow(1+p.infl/100,a-p.ret)/(1-p.tax/100),t=k+m;
+   if(t<=w){short+=w-t;k=m=0;if(dep===null)dep=a}else{k-=w*k/t;m-=w*m/t}
+   k*=1+rc;m*=1+rp}
+  out["s"+a]=k+m-short}
+ return{out,final:k+m-short,dep,cost}}
+function series(p,share,shift){const r=[];let k=p.bal*(1-share),m=p.bal*share;m-=m*(p.cgt+p.sur+p.tx+p.adv)/100;let short=0;
+ const rc=(p.cir+shift-p.cif)/100,rp=(p.pir+shift-p.pif)/100;let s=0;
+ for(let a=p.age;a<=90;a++){r.push([a,k+m-s]);
+  if(a<p.ret){k=k*(1+rc)+p.contrib*(1-share);m=m*(1+rp)+p.contrib*share}
+  else{const w=p.need*Math.pow(1+p.infl/100,a-p.ret)/(1-p.tax/100),t=k+m;
+   if(t<=w){s+=w-t;k=m=0}else{k-=w*k/t;m-=w*m/t}k*=1+rc;m*=1+rp}}
+ return r}
+function td(x){return`<td class="${x>0?"pos":x<0?"neg":""}">${(x>0?"+":"")+fmt(x)}</td>`}
+function run(){
+ F.forEach(([id])=>v[id]=parseFloat($("i_"+id).value)||0);
+ let best=0,bs=-1e18;
+ SH.forEach(s=>{const sc=SC.reduce((t,[,d])=>t+sim(v,s,d).final,0)/3;if(sc>bs){bs=sc;best=s}});
+ const base=sim(v,0,0),pick=sim(v,best,0),full=sim(v,1,0);
+ const gain=pick.final-base.final,pct=Math.round(best*100);
+ const be=(()=>{if(!best)return null;const a=series(v,0,0),b=series(v,best,0);for(let i=0;i<a.length;i++)if(b[i][1]>=a[i][1])return b[i][0];return null})();
+ let head=pct===0?"Retain the current investments":pct===100?"Transition fully to the proposed investment":`Transition about ${pct}% of the portfolio`;
+ let why=pct===0?`Across the three scenarios the cost of moving (${fmt(full.cost)} if fully transitioned) is not earned back by age 90. Staying put leaves ${fmt(base.final)} at 90 in the base case.`
+ :`In the base case this leaves ${fmt(pick.final)} at age 90 versus ${fmt(base.final)} if the client stays, a difference of ${fmt(gain)}. Up-front transition cost is ${fmt(pick.cost)}; the move ${be?`pays for itself by age ${be}`:"does not break even within the horizon"}.`;
+ if(pick.dep||base.dep)why+=` Funds run out at age ${pick.dep??"never"} under this plan and ${base.dep??"never"} under the current one.`;
+ $("verdict").innerHTML=`<b>${head}</b>${why}`;
+ const A=[v.ret,70,80,90].filter((a,i,r)=>r.indexOf(a)===i&&a<=90);
+ const cell=(o,a)=>fmt(o[a]);
+ $("ages").innerHTML=`<table><tr><th>Age</th><th>Stay in CI</th><th>Full PI</th><th>Best fit (${pct}%)</th><th>Best fit vs CI</th></tr>`+A.map(a=>`<tr><td>${a}</td><td>${cell(base.out,a)}</td><td>${cell(full.out,a)}</td><td>${cell(pick.out,a)}</td>${td(pick.out[a]-base.out[a])}</tr>`).join("")+"</table>";
+ $("scen").innerHTML=`<table><tr><th>Scenario</th><th>Stay in CI</th><th>Full PI</th><th>Best fit (${pct}%)</th><th>Best fit vs CI</th></tr>`+SC.map(([n,d])=>{const a=sim(v,0,d),b=sim(v,1,d),c=sim(v,best,d);return`<tr><td>${n}</td><td>${fmt(a.final)}</td><td>${fmt(b.final)}</td><td>${fmt(c.final)}</td>${td(c.final-a.final)}</tr>`}).join("")+"</table>";
+ $("costline").textContent=`Full transition cost: ${fmt(full.cost)} (${(v.cgt+v.sur+v.tx+v.adv).toFixed(1)}% of the portfolio) across capital gains tax, exit charges, transaction costs and upfront advisory fees. Net annual return: CI ${(v.cir-v.cif).toFixed(1)}%, PI ${(v.pir-v.pif).toFixed(1)}%.`;
+ draw(series(v,0,0),series(v,best,0))}
+function draw(a,b){
+ const W=700,H=300,L=62,R=12,T=12,B=28,all=a.concat(b).map(x=>x[1]),mx=Math.max(...all,1),mn=Math.min(...all,0);
+ const x=g=>L+(g-a[0][0])/(90-a[0][0])*(W-L-R),y=g=>T+(1-(g-mn)/(mx-mn||1))*(H-T-B);
+ const pl=(r,c)=>`<polyline fill="none" stroke="var(${c})" stroke-width="2.5" points="${r.map(p=>x(p[0])+","+y(p[1])).join(" ")}"/>`;
+ let g="";for(let i=0;i<=4;i++){const val=mn+(mx-mn)*i/4;g+=`<line x1="${L}" x2="${W-R}" y1="${y(val)}" y2="${y(val)}" stroke="var(--line)"/><text x="${L-6}" y="${y(val)+4}" text-anchor="end" font-size="11" fill="var(--mut)">$${(val/1e6).toFixed(1)}M</text>`}
+ for(let ag=Math.ceil(a[0][0]/10)*10;ag<=90;ag+=10)g+=`<text x="${x(ag)}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--mut)">${ag}</text>`;
+ const rx=x(v.ret);g+=`<line x1="${rx}" x2="${rx}" y1="${T}" y2="${H-B}" stroke="var(--cost)" stroke-dasharray="4 4"/><text x="${rx+4}" y="${T+10}" font-size="11" fill="var(--cost)">retire ${v.ret}</text>`;
+ $("chart").innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Portfolio value by age for current investment and best-fit transition">${g}${pl(a,"--ci")}${pl(b,"--pi")}</svg>`}
+$("inputs").innerHTML=F.map(([id,l,s])=>`<label>${l}<input type="number" id="i_${id}" step="${s}" min="0"></label>`).join("");
+$("preset").innerHTML=Object.keys(P).map(n=>`<option>${n}</option>`).join("");
+function load(){const p=P[$("preset").value];F.forEach(([id])=>$("i_"+id).value=p[id]);run()}
+$("preset").onchange=load;$("inputs").oninput=run;load();
+</script>
+</body>
+</html>
